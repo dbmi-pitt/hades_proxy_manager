@@ -1,135 +1,133 @@
-from fastapi import FastAPI, HTTPException, Depends, Request, Form, Response
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, Dict
+
+from fastapi import FastAPI, HTTPException, Response, Request, Form
+from fastapi_proxy_lib.core.http import ReverseHttpProxy
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi_jwt_auth import AuthJWT
-from fastapi_jwt_auth.exceptions import AuthJWTException
-from pydantic import BaseModel
-from pam import authenticate
+from jose import JWTError, jwt
+from datetime import datetime, timedelta
+from typing import Dict, Optional
+from src.spawner import Spawner
 from httpx import AsyncClient
-from typing import Dict
+import pam
+from starlette.requests import Request
 
 from src.spawner import Spawner
 
-app = FastAPI()
+SECRET_KEY = "placeholder__HADES_PROXY_MANAGER"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-containers: Dict[str | int, Spawner] = {}
-
-
-class User(BaseModel):
-    username: str
-    password: str
+proxies: Dict[str, ReverseHttpProxy] = {}
+containers: Dict[str, Spawner] = {}
 
 
-class Settings(BaseModel):
-    authjwt_secret_key: str = "placeholder__HADES_PROXY_MANAGER"
-    authjwt_token_location: set = {"cookies"}
-    authjwt_cookie_csrf_protect: bool = False
+@asynccontextmanager
+async def close_proxy_event(_: FastAPI) -> AsyncIterator[None]:
+    yield
+    for proxy in proxies.values():
+        await proxy.aclose()
 
 
-@AuthJWT.load_config  # type: ignore
-def get_config():
-    return Settings()
+app = FastAPI(lifespan=close_proxy_event)
 
 
-@app.exception_handler(AuthJWTException)
-def authjwt_exception_handler(request: Request, exc: AuthJWTException):
-    return RedirectResponse(url="/auth/login")
+def authenticate_user(username: str, password: str) -> bool:
+    p = pam.pam()
+    return p.authenticate(username, password)
 
 
-@app.post("/auth/token")
-def auth(
-    username: str = Form(...), password: str = Form(...), Authorize: AuthJWT = Depends()
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+async def get_current_user(request: Request):
+    token = request.cookies.get("hpm_access_token")
+    if token is None:
+        return RedirectResponse(url="/login", status_code=303)
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return username
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login():
+    return HTMLResponse(
+        """
+        <form action="/token" method="post">
+        <label for="username">Username:</label>
+        <input type="text" id="username" name="username" required />
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required />
+        <button type="submit">Login</button>
+        </form>
+        """
+    )
+
+
+@app.post("/token", response_class=RedirectResponse)
+async def login_for_access_token(
+    response: Response, username: str = Form(...), password: str = Form(...)
 ):
-    user = User(username=username, password=password)
-    if authenticate(user.username, user.password) is False:
-        raise HTTPException(status_code=401, detail="Bad username or password")
+    if authenticate_user(username, password):
+        response = RedirectResponse("/", status_code=303)
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        hpm_access_token = create_access_token(
+            data={"sub": username}, expires_delta=access_token_expires
+        )
+        response.set_cookie(
+            key="hpm_access_token",
+            value=hpm_access_token,
+            httponly=True,
+        )
+        return response
+    else:
+        return RedirectResponse(url="/login", status_code=303)
 
-    access_token = Authorize.create_access_token(subject=user.username)
-    refresh_token = Authorize.create_refresh_token(subject=user.username)
-    Authorize.set_access_cookies(access_token)
-    Authorize.set_refresh_cookies(refresh_token)
-    return RedirectResponse(url="/")
+@app.get("/")
+async def root(request: Request):
+    try:
+        user = await get_current_user(request)
+    except HTTPException:
+        return RedirectResponse(url="/login", status_code=303)
+    return RedirectResponse(f"/{user}")
 
+@app.api_route("/{user_path}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE"])
+async def proxy(request: Request, user_path: str, path: str = ""):
+    user = await get_current_user(request)
 
-@app.post("/auth/refresh")
-def refresh(Authorize: AuthJWT = Depends()):
-    Authorize.jwt_refresh_token_required()
-    user = Authorize.get_jwt_subject()
-    if user is None:
-        raise HTTPException(status_code=401, detail="Identity not found")
-    new_access_token = Authorize.create_access_token(subject=user)
-    Authorize.set_access_cookies(new_access_token)
-    return Response(status_code=200)
-
-
-@app.delete("/auth/logout")
-def logout(Authorize: AuthJWT = Depends()):
-    Authorize.jwt_required()
-    Authorize.unset_jwt_cookies()
-    return RedirectResponse(url="/")
-
-
-@app.get("/auth/login")
-def login_form():
-    html_content = """
-    <html>
-        <head>
-            <title>Login</title>
-        </head>
-        <body>
-            <form action="/auth/token" method="post">
-                <input type="text" name="username" placeholder="Username" required>
-                <input type="password" name="password" placeholder="Password" required>
-                <button type="submit">Login</button>
-            </form>
-        </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content)
-
-
-@app.get("/proxy/{path:path}")
-async def proxy_get(path: str, response: Response, Authorize: AuthJWT = Depends()):
-    Authorize.jwt_required()
-    user = Authorize.get_jwt_subject()
-    if user is None:
-        raise HTTPException(status_code=401, detail="Identity not found")
+    if user_path != user:
+        return RedirectResponse(url="/login", status_code=303)
 
     if user not in containers:
         containers[user] = Spawner(user)
 
     host = containers[user].get_internal_ip()
-    url = f"http://{host}/{path}"
-    async with AsyncClient() as client:
-        proxy = await client.get(url)
+    if user not in proxies:
+        target_url = f"http://{host}:8787/"
+        proxies[user] = ReverseHttpProxy(AsyncClient(), base_url=target_url)
+    
+    res = await proxies[user].proxy(request=request, path=path)
 
-    response.body = proxy.content
-    response.status_code = proxy.status_code
-    return response
-
-
-@app.post("/proxy/{path:path}")
-async def proxy_post(
-    path: str, request: Request, response: Response, Authorize: AuthJWT = Depends()
-):
-    Authorize.jwt_required()
-    user = Authorize.get_jwt_subject()
-    if user is None:
-        raise HTTPException(status_code=401, detail="Identity not found")
-
-    if user not in containers:
-        containers[user] = Spawner(user)
-
-    host = containers[user].get_internal_ip()
-    url = f"http://{host}/{path}"
-    async with AsyncClient() as client:
-        proxy = await client.post(url, data=await request.body())  # type: ignore
-
-    response.body = proxy.content
-    response.status_code = proxy.status_code
-    return response
+    if "location" in res.headers:
+        res.headers["location"] = res.headers["location"].replace(f"http://{host}:8787", f"/{user}")
+    
+    return res
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="0.0.0.0", port=7007, log_level="info", reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=6006, reload=True)

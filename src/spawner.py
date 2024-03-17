@@ -1,5 +1,7 @@
 import docker
+import docker.errors
 from docker.utils import kwargs_from_env
+from pwd import getpwnam
 
 
 DOCKER_IMAGE = "ohdsi/broadsea-hades:4.2.1"
@@ -11,13 +13,26 @@ class Spawner:
         self.user = user
         self.container_name = f"hades-{self.user}"
         self.container = self.spawn()
-        print(self.get_internal_ip())
 
     def spawn(self):
-        container = self.client.containers.get(self.container_name)
-        if not container:
+        try:
+            container = self.client.containers.get(self.container_name)
+        except docker.errors.NotFound:
             container = self.client.containers.run(
-                DOCKER_IMAGE, name=self.container_name, detach=True
+                DOCKER_IMAGE,
+                name=self.container_name,
+                environment={
+                    "USER": self.user,
+                    "PASSWORD": "password",
+                    "USERID": getpwnam(self.user).pw_uid,
+                },
+                volumes={
+                    f"/home/{self.user}": {
+                        "bind": f"/home/{self.user}",
+                        "mode": "rw",
+                    },
+                },
+                detach=True,
             )
         return container
 
