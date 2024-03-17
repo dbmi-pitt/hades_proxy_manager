@@ -7,7 +7,7 @@ from pam import authenticate
 from httpx import AsyncClient
 from typing import Dict
 
-from .src.spawner import Spawner
+from src.spawner import Spawner
 
 app = FastAPI()
 

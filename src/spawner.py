@@ -1,6 +1,5 @@
 import docker
 from docker.utils import kwargs_from_env
-from pydantic import BaseModel
 
 
 DOCKER_IMAGE = "ohdsi/broadsea-hades:4.2.1"
