@@ -1,1 +1,1 @@
-# hades-proxy-manager
+# hades_proxy_manager
