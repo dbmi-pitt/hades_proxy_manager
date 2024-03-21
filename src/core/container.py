@@ -72,14 +72,14 @@ class Container:
 
     async def poll(self):
         while True:
-            await asyncio.sleep(30)
+            await asyncio.sleep(360 if self.state == "exited" else 30)
 
             self.container.reload()  # type: ignore
             self.state = self.container.attrs["State"]["Status"]  # type: ignore
             self.internal_host = f"{self.get_internal_ip()}:{settings.HADES_PORT}"
 
-            if self.last_used < datetime.now(UTC) - timedelta(hours=6):
+            if self.state != "exited" and self.last_used < datetime.now(
+                UTC
+            ) - timedelta(hours=6):
                 self.container.stop()  # type: ignore
                 self.state = "exited"
-
-            print("Polling...")

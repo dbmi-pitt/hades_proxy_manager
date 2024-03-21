@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
-from src import instances, settings
+from src import instances
 from src.utils.auth import get_current_user
 
 router = APIRouter(prefix="", tags=["proxy"])
