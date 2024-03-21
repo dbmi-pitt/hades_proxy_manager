@@ -1,4 +1,5 @@
 import asyncio
+import time
 from datetime import UTC, datetime, timedelta
 from pwd import getpwnam
 from typing import Literal
@@ -8,8 +9,8 @@ import docker.errors
 import docker.models.resource
 from docker.utils import kwargs_from_env
 
-from src import settings
 from src.models import User
+from src.settings import settings
 
 DOCKER_IMAGE = "ohdsi/broadsea-hades:4.2.1"
 
@@ -30,9 +31,9 @@ class Container:
 
     def spawn(self):
         try:
-            container = self.client.containers.get(self.container_name)
+            self.container = self.client.containers.get(self.container_name)
         except docker.errors.NotFound:
-            container = self.client.containers.run(
+            self.container = self.client.containers.run(
                 image=DOCKER_IMAGE,
                 name=self.container_name,
                 environment={
@@ -48,17 +49,20 @@ class Container:
                 },
                 detach=True,
             )
+            retries = 0
+            while self.container.attrs["State"]["Status"] != "running" and retries < 5:  # type: ignore
+                time.sleep(2)
+                self.container.reload()  # type: ignore
+                retries += 1
+            if retries == 5:
+                raise Exception("Failed to start container")
 
-        self.state = container.attrs["State"]["Status"]  # type: ignore
-        if self.state == "paused":
-            self.container.start()
-        elif self.state == "exited":
-            self.container.restart()
-
+        self.container.reload()  # type: ignore
         self.internal_host = f"{self.get_internal_ip()}:{settings.HADES_PORT}"
         self.last_used = datetime.now(UTC)
+        self.state = self.container.attrs["State"]["Status"]  # type: ignore
 
-        return container
+        return self.container
 
     def get_internal_ip(self):
         return self.container.attrs["NetworkSettings"]["IPAddress"]  # type: ignore
@@ -70,12 +74,12 @@ class Container:
         while True:
             await asyncio.sleep(30)
 
-            self.container.reload()
+            self.container.reload()  # type: ignore
             self.state = self.container.attrs["State"]["Status"]  # type: ignore
-            self.internal_host = self.get_internal_ip()
+            self.internal_host = f"{self.get_internal_ip()}:{settings.HADES_PORT}"
 
             if self.last_used < datetime.now(UTC) - timedelta(hours=6):
-                self.container.stop()
+                self.container.stop()  # type: ignore
                 self.state = "exited"
-            
+
             print("Polling...")

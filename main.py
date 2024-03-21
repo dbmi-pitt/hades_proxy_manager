@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from starlette.requests import Request
 
-from src import instances
+from src import instances, settings
 from src.routers import auth_router, proxy_router
 from src.utils.auth import get_current_user
 
@@ -34,4 +34,4 @@ app.include_router(auth_router)
 app.include_router(proxy_router)
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=6006, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=settings.PORT, reload=True)
