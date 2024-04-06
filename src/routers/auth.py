@@ -46,7 +46,7 @@ async def login_for_access_token(
         )
 
         if username not in instances:
-            user = User(username=username, password=password)
+            user = User(username=username)
             try:
                 container = Container(user)
             except DockerException:

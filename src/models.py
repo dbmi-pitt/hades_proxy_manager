@@ -4,7 +4,6 @@ from pydantic import BaseModel
 
 class User(BaseModel):
     username: str
-    password: str
 
 
 from src.core.container import Container

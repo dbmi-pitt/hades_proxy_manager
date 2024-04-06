@@ -37,8 +37,8 @@ class Container:
                 image=DOCKER_IMAGE,
                 name=self.container_name,
                 environment={
+                    "DISABLE_AUTH": "true",
                     "USER": self.user.username,
-                    "PASSWORD": self.user.password,
                     "USERID": getpwnam(self.user.username).pw_uid,
                 },
                 volumes={
