@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 import uvicorn
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from starlette.requests import Request
 
@@ -27,7 +27,9 @@ async def root(request: Request):
         username = await get_current_user(request, auth_router.url_path_for("login"))
     except HTTPException:
         return RedirectResponse(url=auth_router.url_path_for("login"), status_code=303)
-    return RedirectResponse(f"{proxy_router.url_path_for("proxy", user_path=username, path='')}")
+    return RedirectResponse(
+        proxy_router.url_path_for("proxy", user_path=username, path="")
+    )
 
 
 app.include_router(main_router)
