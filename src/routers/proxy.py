@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
-from src import instances
+from src import instances, settings
+from src.routers import auth_router
 from src.utils.auth import get_current_user
 
-router = APIRouter(prefix="", tags=["proxy"])
+router = APIRouter(prefix=f"{settings.PREFIX}", tags=["proxy"])
 
 
 @router.api_route(
@@ -19,7 +20,7 @@ async def proxy(request: Request, user_path: str, path: str = ""):
         or (user_path != username)
         or (username not in instances)
     ):
-        return RedirectResponse(url="/_/login", status_code=303)
+        return RedirectResponse(url=auth_router.url_path_for("login"), status_code=303)
 
     if instances[username].container.state != "running":
         try:
@@ -36,7 +37,8 @@ async def proxy(request: Request, user_path: str, path: str = ""):
 
     if "location" in res.headers:
         res.headers["location"] = res.headers["location"].replace(
-            f"http://{instances[username].container.internal_host}", f"/{username}"
+            f"http://{instances[username].container.internal_host}",
+            router.url_path_for("proxy", user_path=username),
         )
 
     return res

@@ -9,16 +9,17 @@ from httpx import AsyncClient
 from src import instances, settings
 from src.core.container import Container
 from src.models import Instance, User
+from src.routers import main_router
 from src.utils.auth import authenticate_user, create_access_token
 
-router = APIRouter(prefix="/_", tags=["auth"])
+router = APIRouter(prefix=f"{settings.PREFIX}/_", tags=["auth"])
 
 
 @router.get("/login", response_class=HTMLResponse)
 async def login():
     return HTMLResponse(
-        """
-        <form action="/_/token" method="post">
+        f"""
+        <form action="{router.url_path_for("token")}" method="post">
         <label for="username">Username:</label>
         <input type="text" id="username" name="username" required />
         <label for="password">Password:</label>
@@ -30,11 +31,11 @@ async def login():
 
 
 @router.post("/token", response_class=RedirectResponse)
-async def login_for_access_token(
+async def token(
     response: Response, username: str = Form(...), password: str = Form(...)
 ):
     if authenticate_user(username, password):
-        response = RedirectResponse("/", status_code=303)
+        response = RedirectResponse(main_router.url_path_for("root"), status_code=303)
         access_token_expires = timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
         hpm_access_token = create_access_token(
             data={"sub": username}, expires_delta=access_token_expires
@@ -60,4 +61,4 @@ async def login_for_access_token(
 
         return response
     else:
-        return RedirectResponse(url="/_/login", status_code=303)
+        return RedirectResponse(url=router.url_path_for("login"), status_code=303)
