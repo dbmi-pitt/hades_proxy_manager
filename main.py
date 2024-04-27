@@ -24,7 +24,7 @@ app = FastAPI(lifespan=close_proxy_event)
 @main_router.get("/")
 async def root(request: Request):
     try:
-        username = await get_current_user(request)
+        username = await get_current_user(request, auth_router.url_path_for("login"))
     except HTTPException:
         return RedirectResponse(url=auth_router.url_path_for("login"), status_code=303)
     return RedirectResponse(f"{proxy_router.url_path_for("proxy", user_path=username, path='')}")

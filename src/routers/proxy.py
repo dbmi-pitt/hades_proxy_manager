@@ -13,7 +13,7 @@ router = APIRouter(prefix=f"{settings.PREFIX}", tags=["proxy"])
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE"],
 )
 async def proxy(request: Request, user_path: str, path: str = ""):
-    username = await get_current_user(request)
+    username = await get_current_user(request, auth_router.url_path_for("login"))
 
     if (
         (type(username) is not str)

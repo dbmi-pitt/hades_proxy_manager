@@ -9,7 +9,7 @@ class _Settings(BaseSettings):
 
     HADES_PORT: int = int(getenv("HPM_HADES_PORT", 8787))
 
-    PREFIX: str = getenv("HPM_PREFIX", "/hpm")
+    PREFIX: str = getenv("HPM_PREFIX", "")
     PORT: int = int(getenv("HPM_PORT", 6006))
 
 
