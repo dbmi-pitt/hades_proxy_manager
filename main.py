@@ -28,7 +28,7 @@ async def root(request: Request):
     except HTTPException:
         return RedirectResponse(url=auth_router.url_path_for("login"), status_code=303)
     return RedirectResponse(
-        proxy_router.url_path_for("proxy", user_path=username, path="")
+        proxy_router.url_path_for("proxy", user_path=username, path="").rstrip("/"),
     )
 
 

@@ -38,7 +38,7 @@ async def proxy(request: Request, user_path: str, path: str = ""):
     if "location" in res.headers:
         res.headers["location"] = res.headers["location"].replace(
             f"http://{instances[username].container.internal_host}",
-            router.url_path_for("proxy", user_path=username, path=""),
+            router.url_path_for("proxy", user_path=username, path="").rstrip("/"),
         )
 
     return res
